@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CompilerConfiguration">
+    <bytecodeTargetLevel>
+      <module name="Maze_Game" target="" />
+    </bytecodeTargetLevel>
+  </component>
+  <component name="JavacSettings">
+    <option name="ADDITIONAL_OPTIONS_OVERRIDE">
+      <module name="Maze_Game" options="" />
+    </option>
+  </component>
+  <component name="RmicSettings">
+    <option name="IS_EANABLED" value="true" />
+  </component>
+</project>
