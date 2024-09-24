@@ -3,10 +3,12 @@ import java.io.Serializable;
 public class GossipMessage implements Serializable {
     private String primaryNodeIp;
     private int primaryNodePort;
+    private int version;
 
-    public GossipMessage(String primaryNodeIp, int primaryNodePort) {
+    public GossipMessage(String primaryNodeIp, int primaryNodePort, int version) {
         this.primaryNodeIp = primaryNodeIp;
         this.primaryNodePort = primaryNodePort;
+        this.version = version;
     }
     public void setPrimaryNodeIp(String primaryNodeIp) {
         this.primaryNodeIp = primaryNodeIp;
@@ -24,9 +26,11 @@ public class GossipMessage implements Serializable {
         return primaryNodePort;
     }
 
-    public String toString() {
-        return primaryNodeIp + ":" + primaryNodePort;
+    public int getVersion() {
+        return version;
     }
-
+    public void setVersion(int version) {
+        this.version = version;
+    }
 
 }
