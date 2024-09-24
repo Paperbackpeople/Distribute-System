@@ -39,7 +39,7 @@ public class Tracker extends UnicastRemoteObject {
     public void printPlayerList() {
         System.out.println("Current players: ");
         for (PlayerInfo player : players) {
-            System.out.println(player.getPlayerId() + " at " + player.getPlayerAddress());
+            System.out.println(player.getPlayerId());
         }
     }
 
