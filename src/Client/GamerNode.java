@@ -46,8 +46,7 @@ public class GamerNode implements GameNodeInterface {
 
             // 5. 启动 Gossip 协议
             startGossip();
-            requestPrimaryNodeInfo();
-
+            requestPrimaryNodeInfoAndNotifyJoin();
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -122,6 +121,7 @@ public class GamerNode implements GameNodeInterface {
             this.primaryNodePort = message.getPrimaryNodePort();
             this.version = message.getVersion();
             this.updatedPlayers = message.getUpdatedPlayers();
+            this.crashedPlayers = message.getCrashedPlayers();
         }
 
         if (message.getUpdatedPlayers() != null && !message.getUpdatedPlayers().isEmpty()) {
@@ -139,7 +139,7 @@ public class GamerNode implements GameNodeInterface {
         try {
             Registry registry = LocateRegistry.getRegistry(targetNode.getIpAddress(), targetNode.getPort());
             GameNodeInterface node = (GameNodeInterface) registry.lookup("GameNode_" + targetNode.getPlayerId());
-            GossipMessage message = new GossipMessage(primaryNodeIp, primaryNodePort , version, updatedPlayers);
+            GossipMessage message = new GossipMessage(primaryNodeIp, primaryNodePort , version, updatedPlayers, crashedPlayers);
             node.receiveGossipMessage(message);
         } catch (Exception e) {
             e.printStackTrace();
@@ -151,51 +151,52 @@ public class GamerNode implements GameNodeInterface {
         return message.getVersion() > this.version;
     }
 
-    // 主动请求主节点信息的方法
-    private void requestPrimaryNodeInfo() {
-        players.removeIf(player -> player.getPlayerId().equals(this.playerId)); // 排除自己
-
-        for (PlayerInfo player : players) {
-            try {
-                Registry registry = LocateRegistry.getRegistry(player.getIpAddress(), player.getPort());
-                GameNodeInterface node = (GameNodeInterface) registry.lookup("GameNode_" + player.getPlayerId());
-                GossipMessage message = node.getPrimaryNodeInfo();
-                if (message != null) {
-                    this.primaryNodeIp = message.getPrimaryNodeIp();
-                    this.primaryNodePort = message.getPrimaryNodePort();
-                    this.version = message.getVersion();
-                    this.updatedPlayers = message.getUpdatedPlayers();
-                    System.out.println("Obtained primary node info from existing nodes.");
-                    break; // 已获取主节点信息，退出循环
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }
-    }
-
-    // 获取主节点信息的实现
-    @Override
-    public GossipMessage getPrimaryNodeInfo() {
-        return new GossipMessage(primaryNodeIp, primaryNodePort, version, updatedPlayers);
-    }
-
     // 简单的 ping 方法
     @Override
     public void ping() {
         // 简单回应，不需要具体实现
     }
 
-    public void startPinging(){
-        new Thread(()->{
-            int index = 0;
-
-        });
+    private void startPinging() {
+        new Thread(() -> {
+            Random random = new Random();
+            while (true) {
+                try {
+                    PlayerInfo target = null;
+                    synchronized (players) {
+                        if (players.size() > 1) {
+                            // 构建一个可用的目标节点列表，排除自己
+                            List<PlayerInfo> availablePlayers = new ArrayList<>(players);
+                            availablePlayers.removeIf(player -> player.getPlayerId().equals(this.playerId));
+                            if (!availablePlayers.isEmpty()) {
+                                int index = random.nextInt(availablePlayers.size());
+                                target = availablePlayers.get(index);
+                            }
+                        }
+                    }
+                    if (target != null) {
+                        try {
+                            Registry registry = LocateRegistry.getRegistry(target.getIpAddress(), target.getPort());
+                            GameNodeInterface node = (GameNodeInterface) registry.lookup("GameNode_" + target.getPlayerId());
+                            node.ping(); // 调用目标玩家的 ping 方法
+                            System.out.println("Pinged player " + target.getPlayerId());
+                        } catch (Exception e) {
+                            // 如果无法连接到目标玩家，认为其已崩溃
+                            handlePlayerCrash(target);
+                        }
+                    }
+                    Thread.sleep(500); // 每 0.5 秒 ping 一次
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }).start();
     }
 
     private void requestPrimaryNodeInfoAndNotifyJoin() {
         players.removeIf(player -> player.getPlayerId().equals(this.playerId)); // 排除自己
-
+        if(players.isEmpty()){
+        }
         // 选择若干节点进行交互
         int nodesToContact = Math.min(3, players.size()); // 最多联系3个节点
         Collections.shuffle(players);
@@ -241,11 +242,13 @@ public class GamerNode implements GameNodeInterface {
     @Override
     public GossipMessage joinAndProvideInfo(List<PlayerInfo> newPlayers) throws RemoteException {
         // 接收新节点的加入信息
+        boolean version_flag = false;
         if (newPlayers != null && !newPlayers.isEmpty()) {
             synchronized (players) {
                 for (PlayerInfo newPlayer : newPlayers) {
                     if (!players.contains(newPlayer) && !newPlayer.getPlayerId().equals(this.playerId)) {
                         players.add(newPlayer);
+                        version_flag = true;
                         System.out.println("Added new player from join request: " + newPlayer.getPlayerId());
                     }
                 }
@@ -253,16 +256,20 @@ public class GamerNode implements GameNodeInterface {
         }
 
         // 构建回复的 GossipMessage，包含主节点信息和玩家列表更新
-        List<PlayerInfo> updatedPlayers = new ArrayList<>();
+        List<PlayerInfo> updatedPlayers;
         synchronized (players) {
             for (PlayerInfo player : players) {
-                if (!player.getPlayerId().equals(this.playerId)) {
-                    updatedPlayers.add(player);
-                }
+                updatedPlayers = new ArrayList<>(players);
             }
+            if(!updatedPlayers.contains(this.playerInfo)){
+                updatedPlayers.add(this.playerInfo);
         }
-        return new GossipMessage(primaryNodeIp, primaryNodePort, this.version, updatedPlayers);
+        if(version_flag){
+            this.version++;
+        }
+        return new GossipMessage(primaryNodeIp, primaryNodePort, this.version, updatedPlayers, crashedPlayers);
     }
+}
 
 //    public static void main(String[] args) {
 //        if (args.length < 3) {
