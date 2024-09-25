@@ -17,13 +17,14 @@ public class GamerNode implements GameNodeInterface {
     private String playerId;
     private Tracker tracker;
     private PlayerInfo playerInfo;
-    private String primaryNodeIp;
-    private int primaryNodePort;
+    private PlayerInfo primaryNode;
+    private PlayerInfo backupNode;
     private int version;
     private List<PlayerInfo> updatedPlayers;
     List<PlayerInfo> players;
-    private List<PlayerInfo> newPlayers = new ArrayList<>();
-    private List<String> crashedPlayers = new ArrayList<>();
+    private List<> crashedPlayers = new ArrayList<>();
+    private boolean isPrimary = false;
+    private boolean isBackup = false;
 
     public GamerNode(String trackerIp, int trackerPort, String playerId) {
         this.playerId = playerId;
@@ -47,6 +48,9 @@ public class GamerNode implements GameNodeInterface {
             // 5. 启动 Gossip 协议
             startGossip();
             requestPrimaryNodeInfoAndNotifyJoin();
+            if(isPrimary){
+                initializeGameState(players);
+            }
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -116,9 +120,8 @@ public class GamerNode implements GameNodeInterface {
     }
     @Override
     public void receiveGossipMessage(GossipMessage message) throws RemoteException {
-        if (isNewerPrimaryNode(message)) {
-            this.primaryNodeIp = message.getPrimaryNodeIp();
-            this.primaryNodePort = message.getPrimaryNodePort();
+        if (message.getVersion() > this.version) {
+            this.primaryNode = message.getPrimaryNode();
             this.version = message.getVersion();
             this.updatedPlayers = message.getUpdatedPlayers();
             this.crashedPlayers = message.getCrashedPlayers();
@@ -134,21 +137,41 @@ public class GamerNode implements GameNodeInterface {
 
             }
         }
+
+        // 处理崩溃的玩家信息
+        if (message.getCrashedPlayers() != null && !message.getCrashedPlayers().isEmpty()) {
+            synchronized (players) {
+                for (PlayerInfo crashedPlayer : message.getCrashedPlayers()) {
+                    String crashedPlayerId = crashedPlayer.getPlayerId();
+                    players.removeIf(player -> player.getPlayerId().equals(crashedPlayerId));
+                    System.out.println("Removed crashed player from gossip: " + crashedPlayer.getPlayerId());
+
+                    // 如果崩溃的节点是主服务器或备份服务器，启动相应的处理
+                    if (crashedPlayerId.equals(primaryNode.getPlayerId())) {
+                        System.out.println("Primary node has crashed (via gossip). Initiating election...");
+//                        initiateElection();
+                    } else if (crashedPlayerId.equals(backupNode.getPlayerId())) {
+                        System.out.println("Backup node has crashed (via gossip). Selecting new backup...");
+//                        selectNewBackup();
+                    }
+                }
+            }
+            // 更新游戏状态
+//            updateGameStateAfterCrashGossip(message.getCrashedPlayers());
     }
+}
+
     private void sendGossipMessage(PlayerInfo targetNode) {
         try {
             Registry registry = LocateRegistry.getRegistry(targetNode.getIpAddress(), targetNode.getPort());
             GameNodeInterface node = (GameNodeInterface) registry.lookup("GameNode_" + targetNode.getPlayerId());
-            GossipMessage message = new GossipMessage(primaryNodeIp, primaryNodePort , version, updatedPlayers, crashedPlayers);
+            List<PlayerInfo> crashedPlayersCopy = new ArrayList<>(this.crashedPlayers);
+            GossipMessage message = new GossipMessage(primaryNode, version, updatedPlayers, crashedPlayersCopy);
+            this.crashedPlayers.clear();
             node.receiveGossipMessage(message);
         } catch (Exception e) {
             e.printStackTrace();
         }
-    }
-
-    private boolean isNewerPrimaryNode(GossipMessage message) {
-        // 实现逻辑来判断新的主节点信息是否更优先
-        return message.getVersion() > this.version;
     }
 
     // 简单的 ping 方法
@@ -192,7 +215,52 @@ public class GamerNode implements GameNodeInterface {
             }
         }).start();
     }
+    private void handlePlayerCrash(PlayerInfo crashedPlayer) {
+        System.out.println("Player " + crashedPlayer.getPlayerId() + " has crashed.");
 
+        // 从本地的 players 列表中移除崩溃的节点
+        synchronized (players) {
+            players.removeIf(player -> player.getPlayerId().equals(crashedPlayer.getPlayerId()));
+        }
+
+        // 将崩溃的节点添加到 crashedPlayers 列表中，以便通过 Gossip 传播
+        synchronized (crashedPlayers) {
+            if (!crashedPlayers.contains(crashedPlayer.getPlayerId())) {
+                crashedPlayers.add(crashedPlayer.getPlayerId());
+            }
+        }
+
+        // 更新游戏状态，移除崩溃玩家的角色
+//        updateGameStateAfterCrash(crashedPlayer.getPlayerId());
+
+        // 如果崩溃的节点是主服务器或备份服务器
+        if (crashedPlayer.getPlayerId().equals(primaryNode.getPlayerId())) {
+            System.out.println("Primary node has crashed. Initiating election...");
+//            initiateElection();
+        } else if (crashedPlayer.getPlayerId().equals(backupNode.getPlayerId())) {
+            System.out.println("Backup node has crashed. Selecting new backup...");
+//            selectNewBackup();
+        }
+    }
+//    private void updateGameStateAfterCrash(String crashedPlayerId) {
+//        synchronized (gameState) {
+//            gameState.removePlayer(crashedPlayerId);
+//            System.out.println("Removed crashed player's character from the game.");
+//        }
+//        // 可选地，将更新后的游戏状态传播给其他节点
+//        propagateGameState();
+//    }
+//
+//    private void updateGameStateAfterCrashGossip(List<String> crashedPlayerIds) {
+//        synchronized (gameState) {
+//            for (String playerId : crashedPlayerIds) {
+//                gameState.removePlayer(playerId);
+//            }
+//            System.out.println("Updated game state after receiving crashed players from gossip.");
+//        }
+//        // 可选地，将更新后的游戏状态传播给其他节点
+//        propagateGameState();
+//    }
     private void requestPrimaryNodeInfoAndNotifyJoin() {
         players.removeIf(player -> player.getPlayerId().equals(this.playerId)); // 排除自己
         if(players.isEmpty()){
@@ -215,8 +283,7 @@ public class GamerNode implements GameNodeInterface {
                 GossipMessage response = node.joinAndProvideInfo(newPlayers);
                 if (response != null) {
                     // 更新本地的主节点信息和其他状态
-                    this.primaryNodeIp = response.getPrimaryNodeIp();
-                    this.primaryNodePort = response.getPrimaryNodePort();
+                    this.primaryNode = response.getPrimaryNode();
                     this.version = response.getVersion();
 
                     // 更新玩家列表
@@ -256,18 +323,15 @@ public class GamerNode implements GameNodeInterface {
         }
 
         // 构建回复的 GossipMessage，包含主节点信息和玩家列表更新
-        List<PlayerInfo> updatedPlayers;
         synchronized (players) {
-            for (PlayerInfo player : players) {
-                updatedPlayers = new ArrayList<>(players);
-            }
+            List<PlayerInfo> updatedPlayers = new ArrayList<>(players);
             if(!updatedPlayers.contains(this.playerInfo)){
                 updatedPlayers.add(this.playerInfo);
         }
         if(version_flag){
             this.version++;
         }
-        return new GossipMessage(primaryNodeIp, primaryNodePort, this.version, updatedPlayers, crashedPlayers);
+        return new GossipMessage(primaryNode, this.version, updatedPlayers, crashedPlayers);
     }
 }
 
