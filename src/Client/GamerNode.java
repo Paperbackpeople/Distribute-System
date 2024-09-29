@@ -1,5 +1,7 @@
 package Client;
 import Interface.GameNodeInterface;
+import Message.ElectionMessage;
+import Message.GameState;
 import Message.GossipMessage;
 import Player.PlayerInfo;
 import Server.Tracker;
@@ -16,15 +18,18 @@ import java.util.Random;
 public class GamerNode implements GameNodeInterface {
     private String playerId;
     private Tracker tracker;
-    private PlayerInfo playerInfo;
     private PlayerInfo primaryNode;
     private PlayerInfo backupNode;
-    private int version;
+    private int version = 0;
     private List<PlayerInfo> updatedPlayers;
     List<PlayerInfo> players;
-    private List<> crashedPlayers = new ArrayList<>();
+    private List<PlayerInfo> crashedPlayers = new ArrayList<>();
     private boolean isPrimary = false;
     private boolean isBackup = false;
+    private GameState gameState;
+    private PlayerInfo playerInfo;
+    boolean electionInProgress = false;
+    int electionVersion = 0;
 
     public GamerNode(String trackerIp, int trackerPort, String playerId) {
         this.playerId = playerId;
@@ -46,9 +51,12 @@ public class GamerNode implements GameNodeInterface {
             localRegistry.bind("GameNode_" + playerId, stub); // 使用唯一名称绑定对象，避免命名冲突
 
             // 5. 启动 Gossip 协议
-            startGossip();
             requestPrimaryNodeInfoAndNotifyJoin();
-            if(isPrimary){
+            //sleep 1s to prepare the initialization
+            Thread.sleep(1000);
+            startGossip();
+            startPinging();
+            if (isPrimary) {
                 initializeGameState(players);
             }
         } catch (Exception e) {
@@ -60,14 +68,13 @@ public class GamerNode implements GameNodeInterface {
         // 启动Gossip协议
         new Thread(() -> {
             while (true) {
-                try{
+                try {
                     PlayerInfo randomPlayer = getPlayerInfo();
                     if (randomPlayer != null) {
                         sendGossipMessage(randomPlayer);
                     }
                     Thread.sleep(1000);
-                }
-                catch (Exception e) {
+                } catch (Exception e) {
                     e.printStackTrace();
                 }
 
@@ -93,6 +100,7 @@ public class GamerNode implements GameNodeInterface {
         // 获取玩家的移动输入，如0-4表示不同方向，9表示退出
         return 0;
     }
+
     private void handleMove(int move) {
         try {
             if (move >= 0 && move <= 4) {
@@ -118,6 +126,7 @@ public class GamerNode implements GameNodeInterface {
             e.printStackTrace();
         }
     }
+
     @Override
     public void receiveGossipMessage(GossipMessage message) throws RemoteException {
         if (message.getVersion() > this.version) {
@@ -125,13 +134,15 @@ public class GamerNode implements GameNodeInterface {
             this.version = message.getVersion();
             this.updatedPlayers = message.getUpdatedPlayers();
             this.crashedPlayers = message.getCrashedPlayers();
+            players = message.getUpdatedPlayers();
         }
 
         if (message.getUpdatedPlayers() != null && !message.getUpdatedPlayers().isEmpty()) {
-            synchronized (players){
+            synchronized (players) {
                 for (PlayerInfo player : message.getUpdatedPlayers()) {
                     if (players.stream().noneMatch(p -> p.getPlayerId().equals(player.getPlayerId()))) {
                         players.add(player);
+                        this.updatedPlayers.add(player);
                     }
                 }
 
@@ -149,25 +160,35 @@ public class GamerNode implements GameNodeInterface {
                     // 如果崩溃的节点是主服务器或备份服务器，启动相应的处理
                     if (crashedPlayerId.equals(primaryNode.getPlayerId())) {
                         System.out.println("Primary node has crashed (via gossip). Initiating election...");
-//                        initiateElection();
+                        initiateElection();
                     } else if (crashedPlayerId.equals(backupNode.getPlayerId())) {
                         System.out.println("Backup node has crashed (via gossip). Selecting new backup...");
-//                        selectNewBackup();
+                        selectNewBackup();
                     }
                 }
             }
             // 更新游戏状态
 //            updateGameStateAfterCrashGossip(message.getCrashedPlayers());
+        }
+        if(message.getUpdatedPlayers().size() == 1 && message.getCrashedPlayers().isEmpty()){
+            sendGossipMessage(message.getSenderInfo());
+        }
     }
-}
 
-    private void sendGossipMessage(PlayerInfo targetNode) {
+    @Override
+    public void receiveReplyMessage(GossipMessage reply) throws RemoteException {
+        this.primaryNode = reply.getPrimaryNode();
+        this.version = reply.getVersion();
+        this.updatedPlayers = reply.getUpdatedPlayers();
+        this.crashedPlayers = reply.getCrashedPlayers();
+        this.gameState = reply.getGameState();
+    }
+
+    public void sendGossipMessage(PlayerInfo targetNode) {
         try {
             Registry registry = LocateRegistry.getRegistry(targetNode.getIpAddress(), targetNode.getPort());
             GameNodeInterface node = (GameNodeInterface) registry.lookup("GameNode_" + targetNode.getPlayerId());
-            List<PlayerInfo> crashedPlayersCopy = new ArrayList<>(this.crashedPlayers);
-            GossipMessage message = new GossipMessage(primaryNode, version, updatedPlayers, crashedPlayersCopy);
-            this.crashedPlayers.clear();
+            GossipMessage message = new GossipMessage(primaryNode, version, updatedPlayers, crashedPlayers, this.playerInfo, null);
             node.receiveGossipMessage(message);
         } catch (Exception e) {
             e.printStackTrace();
@@ -178,6 +199,94 @@ public class GamerNode implements GameNodeInterface {
     @Override
     public void ping() {
         // 简单回应，不需要具体实现
+    }
+
+    @Override
+    public void receiveElectionMessage(ElectionMessage message) throws RemoteException {
+        synchronized (this) {
+            if (message.getElectionVersion() < electionVersion) {
+                // 接收到旧的选举消息，忽略
+                return;
+            } else if (message.getElectionVersion() > electionVersion) {
+                // 接收到新的选举消息，更新选举信息
+                electionVersion = message.getElectionVersion();
+                electionInProgress = true;
+            }
+
+            // 更新候选者列表
+            List<PlayerInfo> candidate = message.getCandidate();
+            if (!candidate.contains(this.playerInfo)) {
+                candidate.add(this.playerInfo);
+                message = new ElectionMessage(electionVersion, candidate);
+                // 继续传播选举消息
+                broadcastElectionMessage(message);
+            } else {
+                // 所有节点都已参与选举，选举结束
+                concludeElection(candidate);
+            }
+        }
+    }
+
+    private void initiateElection() {
+        synchronized (this) {
+            if (electionInProgress) {
+                return; // 已有选举在进行中
+            }
+            electionInProgress = true;
+            electionVersion = generateElectionVersion(); // 生成新的选举版本号
+
+            List<String> candidateIds = new ArrayList<>();
+            candidateIds.add(this.playerId); // 将自己加入候选者列表
+
+            ElectionMessage electionMessage = new ElectionMessage(electionVersion, candidateIds);
+
+            // 通过 Gossip 传播选举消息
+            broadcastElectionMessage(electionMessage);
+        }
+    }
+
+    private void selectNewBackup() {
+
+    }
+
+    private void initiateElection() {
+        synchronized (this) {
+            if (electionInProgress) {
+                return; // 已有选举在进行中
+            }
+            electionInProgress = true;
+            electionVersion = generateElectionVersion(); // 生成新的选举版本号
+
+            List<PlayerInfo> candidate = new ArrayList<>();
+            candidate.add(this.playerInfo); // 将自己加入候选者列表
+
+            ElectionMessage electionMessage = new ElectionMessage(electionVersion, candidate);
+
+            // 通过 Gossip 传播选举消息
+            broadcastElectionMessage(electionMessage);
+        }
+    }
+
+    private int generateElectionVersion() {
+        // 可以使用当前时间戳或其他方式生成唯一的版本号
+        return (int) (System.currentTimeMillis() % Integer.MAX_VALUE);
+    }
+
+    private void broadcastElectionMessage(ElectionMessage message) {
+        synchronized (players) {
+            for (PlayerInfo player : players) {
+                if (player.getPlayerId().equals(this.playerId)) {
+                    continue; // 跳过自己
+                }
+                try {
+                    Registry registry = LocateRegistry.getRegistry(player.getIpAddress(), player.getPort());
+                    GameNodeInterface node = (GameNodeInterface) registry.lookup("GameNode_" + player.getPlayerId());
+                    node.receiveElectionMessage(message);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }
     }
 
     private void startPinging() {
@@ -197,7 +306,7 @@ public class GamerNode implements GameNodeInterface {
                             }
                         }
                     }
-                    if (target != null) {
+                    if (target != null && target != primaryNode) {
                         try {
                             Registry registry = LocateRegistry.getRegistry(target.getIpAddress(), target.getPort());
                             GameNodeInterface node = (GameNodeInterface) registry.lookup("GameNode_" + target.getPlayerId());
@@ -208,6 +317,18 @@ public class GamerNode implements GameNodeInterface {
                             handlePlayerCrash(target);
                         }
                     }
+                    if (target == primaryNode) {
+                        try {
+                            Registry registry = LocateRegistry.getRegistry(primaryNode.getIpAddress(), primaryNode.getPort());
+                            GameNodeInterface node = (GameNodeInterface) registry.lookup("GameNode_" + primaryNode.getPlayerId());
+                            node.ping();
+                            node.receiveGossipMessage(new GossipMessage(primaryNode, version, updatedPlayers, crashedPlayers, this.playerInfo, null));
+                        } catch (Exception e) {
+                            // 如果无法连接到目标玩家，认为其已崩溃
+                            handlePlayerCrash(primaryNode);
+                        }
+                    }
+
                     Thread.sleep(500); // 每 0.5 秒 ping 一次
                 } catch (Exception e) {
                     e.printStackTrace();
@@ -215,6 +336,7 @@ public class GamerNode implements GameNodeInterface {
             }
         }).start();
     }
+
     private void handlePlayerCrash(PlayerInfo crashedPlayer) {
         System.out.println("Player " + crashedPlayer.getPlayerId() + " has crashed.");
 
@@ -226,7 +348,7 @@ public class GamerNode implements GameNodeInterface {
         // 将崩溃的节点添加到 crashedPlayers 列表中，以便通过 Gossip 传播
         synchronized (crashedPlayers) {
             if (!crashedPlayers.contains(crashedPlayer.getPlayerId())) {
-                crashedPlayers.add(crashedPlayer.getPlayerId());
+                crashedPlayers.add(crashedPlayer);
             }
         }
 
@@ -242,7 +364,8 @@ public class GamerNode implements GameNodeInterface {
 //            selectNewBackup();
         }
     }
-//    private void updateGameStateAfterCrash(String crashedPlayerId) {
+
+    //    private void updateGameStateAfterCrash(String crashedPlayerId) {
 //        synchronized (gameState) {
 //            gameState.removePlayer(crashedPlayerId);
 //            System.out.println("Removed crashed player's character from the game.");
@@ -263,7 +386,9 @@ public class GamerNode implements GameNodeInterface {
 //    }
     private void requestPrimaryNodeInfoAndNotifyJoin() {
         players.removeIf(player -> player.getPlayerId().equals(this.playerId)); // 排除自己
-        if(players.isEmpty()){
+        if (players.isEmpty()) {
+            isPrimary = true;
+            return;
         }
         // 选择若干节点进行交互
         int nodesToContact = Math.min(3, players.size()); // 最多联系3个节点
@@ -275,30 +400,25 @@ public class GamerNode implements GameNodeInterface {
             try {
                 Registry registry = LocateRegistry.getRegistry(player.getIpAddress(), player.getPort());
                 GameNodeInterface node = (GameNodeInterface) registry.lookup("GameNode_" + player.getPlayerId());
+                this.updatedPlayers = new ArrayList<>(players);
 
-                // 构建包含自己信息的 GossipMessage，并请求主节点信息
-                List<PlayerInfo> newPlayers = new ArrayList<>();
-                newPlayers.add(this.playerInfo);
+                sendGossipMessage(player);
 
-                GossipMessage response = node.joinAndProvideInfo(newPlayers);
                 if (response != null) {
                     // 更新本地的主节点信息和其他状态
                     this.primaryNode = response.getPrimaryNode();
                     this.version = response.getVersion();
-
-                    // 更新玩家列表
-                    if (response.getUpdatedPlayers() != null) {
-                        synchronized (players) {
-                            for (PlayerInfo newPlayer : response.getUpdatedPlayers()) {
-                                if (!players.contains(newPlayer) && !newPlayer.getPlayerId().equals(this.playerId)) {
-                                    players.add(newPlayer);
-                                    System.out.println("Added new player from response: " + newPlayer.getPlayerId());
-                                }
-                            }
-                        }
+                    this.updatedPlayers = response.getUpdatedPlayers();
+                    this.crashedPlayers = response.getCrashedPlayers();
+                    this.gameState = response.getGameState();
+                    //向主节点发送自己的信息
+                    try {
+                        sendGossipMessage(primaryNode);
+                    } catch (Exception e) {
+                        e.printStackTrace();
                     }
 
-                    System.out.println("Obtained primary node info and notified others about join.");
+
                     break; // 已成功交互，退出循环
                 }
             } catch (Exception e) {
@@ -306,47 +426,5 @@ public class GamerNode implements GameNodeInterface {
             }
         }
     }
-    @Override
-    public GossipMessage joinAndProvideInfo(List<PlayerInfo> newPlayers) throws RemoteException {
-        // 接收新节点的加入信息
-        boolean version_flag = false;
-        if (newPlayers != null && !newPlayers.isEmpty()) {
-            synchronized (players) {
-                for (PlayerInfo newPlayer : newPlayers) {
-                    if (!players.contains(newPlayer) && !newPlayer.getPlayerId().equals(this.playerId)) {
-                        players.add(newPlayer);
-                        version_flag = true;
-                        System.out.println("Added new player from join request: " + newPlayer.getPlayerId());
-                    }
-                }
-            }
-        }
-
-        // 构建回复的 GossipMessage，包含主节点信息和玩家列表更新
-        synchronized (players) {
-            List<PlayerInfo> updatedPlayers = new ArrayList<>(players);
-            if(!updatedPlayers.contains(this.playerInfo)){
-                updatedPlayers.add(this.playerInfo);
-        }
-        if(version_flag){
-            this.version++;
-        }
-        return new GossipMessage(primaryNode, this.version, updatedPlayers, crashedPlayers);
-    }
-}
-
-//    public static void main(String[] args) {
-//        if (args.length < 3) {
-//            System.out.println("Usage: java Game [IP-address] [port-number] [player-id]");
-//            return;
-//        }
-//
-//        String trackerIp = args[0];
-//        int trackerPort = Integer.parseInt(args[1]);
-//        String playerId = args[2];
-//
-//        Game game = new Game(trackerIp, trackerPort, playerId);
-//    }
-
 
 }

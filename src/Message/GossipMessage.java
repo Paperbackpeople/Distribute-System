@@ -1,9 +1,10 @@
 package Message;
 import Player.PlayerInfo;
-
+import Message.GameState;
 import java.io.Serial;
 import java.io.Serializable;
 import java.util.List;
+
 
 public class GossipMessage implements Serializable {
     @Serial
@@ -12,14 +13,18 @@ public class GossipMessage implements Serializable {
     private int version;
     private List<PlayerInfo> updatedPlayers;
     private List<PlayerInfo> crashedPlayers; // 存储崩溃的玩家ID
+    private PlayerInfo senderInfo; // 发送者的信息
+    private GameState gameState; // 游戏状态
 
 
     public GossipMessage(PlayerInfo primaryNode, int version, List<PlayerInfo> updatedPlayers,
-                         List<PlayerInfo> crashedPlayers) {
+                         List<PlayerInfo> crashedPlayers, PlayerInfo senderInfo, GameState gameState) {
         this.primaryNode = primaryNode;
         this.version = version;
         this.updatedPlayers = updatedPlayers;
         this.crashedPlayers = crashedPlayers;
+        this.senderInfo = null;
+        this.gameState = gameState;
 
     }
     public void setPrimaryNode(PlayerInfo primaryNode) {
@@ -49,4 +54,19 @@ public class GossipMessage implements Serializable {
         this.crashedPlayers = crashedPlayers;
     }
 
+    public PlayerInfo getSenderInfo() {
+        return senderInfo;
+    }
+
+    public GameState getGameState() {
+        return gameState;
+    }
+
+    public void setSenderInfo(PlayerInfo senderInfo) {
+        this.senderInfo = senderInfo;
+    }
+
+    public void setGameState(GameState gameState) {
+        this.gameState = gameState;
+    }
 }
