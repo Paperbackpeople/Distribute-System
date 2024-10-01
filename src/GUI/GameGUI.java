@@ -5,6 +5,9 @@ import java.awt.*;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Random;
+import java.util.Scanner;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 
 import Player.*;
 //import Client.GamerNode;
@@ -18,14 +21,18 @@ public class GameGUI extends JFrame {
     private List<PlayerInfo> players;
     private final int mazeSize = 15;
     private final int numTreasures = 10;
+    private String mainServerPlayer = "P1";  
+    private String backupServerPlayer = "P2"; 
+    private final LocalTime startTime; 
     
 
     public GameGUI(PlayerInfo player, List<PlayerInfo> players) {
         this.player = player;
         this.players = players;
+        this.startTime = LocalTime.now();
 
         setTitle("Maze Game - " + player.getPlayerId());
-        setSize(500, 500);
+        setSize(600, 500);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLayout(new BorderLayout());
 
@@ -73,12 +80,6 @@ public class GameGUI extends JFrame {
     }
 
     public void movePlayer(int move) {
-        if (move >= 0 && move <= 4) {
-            System.out.println("Moving player " + player.getPlayerId() + " to direction " + move);
-        } else if (move == 9) {
-            exitGame();
-        }
-
         int X = player.getX();
         int Y = player.getY();
         switch (move) {
@@ -96,7 +97,9 @@ public class GameGUI extends JFrame {
                 player.incrementScore();
                 updateScore(player.getScore());
                 collectTreasure(X, Y);
-                generateNewTreasure();
+            }else if(maze[X][Y] != ' '){
+                System.out.println("Invalid move: This cell is already occupied.");
+                return;
             }
             // Clear previous player position
             maze[player.getX()][player.getY()] = ' ';
@@ -108,36 +111,43 @@ public class GameGUI extends JFrame {
         }
     }
 
+
     public void updateMaze() {
-        mazePanel.removeAll();  // 清空当前组件
-    
-        // 使用 BorderLayout 以便更精确控制布局
+        mazePanel.removeAll();  
         mazePanel.setLayout(new BorderLayout());
-    
-        // 设置字体为固定宽度，确保对齐
         Font monoFont = new Font("Monospaced", Font.PLAIN, 12);
-        Dimension labelSize = new Dimension(30, 30);  // 每个格子30x30像素
+        Dimension labelSize = new Dimension(30, 30); 
+        JPanel leftInfoPanel = new JPanel();
+        leftInfoPanel.setLayout(new BoxLayout(leftInfoPanel, BoxLayout.Y_AXIS)); 
+        leftInfoPanel.setPreferredSize(new Dimension(150, 400));  // 设置左侧面板的宽度
     
-        // 添加顶部边框
-        JPanel topBorderPanel = new JPanel(new GridLayout(1, mazeSize + 2));  // 1行，mazeSize+2列（包括左右边框）
+        // 添加所有玩家的得分
+        leftInfoPanel.add(new JLabel("Player Scores:"));
+        for (PlayerInfo p : players) {
+            leftInfoPanel.add(new JLabel(p.getPlayerId() + ": " + p.getScore()));  // 显示每个玩家的得分
+        }
+        // 添加主服务器和备份服务器信息
+        leftInfoPanel.add(new JLabel("Main Server: " + mainServerPlayer));
+        leftInfoPanel.add(new JLabel("Backup Server: " + backupServerPlayer));
+        // 添加游戏开始时间
+        DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm");
+        leftInfoPanel.add(new JLabel("Game Start Time: " + startTime.format(timeFormatter)));
+
+        mazePanel.add(leftInfoPanel, BorderLayout.WEST);
+    
+        // 顶部边框
+        JPanel topBorderPanel = new JPanel(new GridLayout(1, mazeSize + 2)); 
         topBorderPanel.add(new JLabel("+", SwingConstants.CENTER));  // 左上角
         for (int j = 0; j < mazeSize; j++) {
             topBorderPanel.add(new JLabel("--", SwingConstants.CENTER));  // 水平边框
         }
         topBorderPanel.add(new JLabel("+", SwingConstants.CENTER));  // 右上角
-    
-        // 添加顶部边框到 mazePanel
+        // 添加顶部边框
         mazePanel.add(topBorderPanel, BorderLayout.NORTH);
-    
-        // 创建迷宫主体（带左右边框）
-        JPanel centerPanelWithBorders = new JPanel(new BorderLayout());
-    
-        // 左边框
         JPanel leftBorderPanel = new JPanel(new GridLayout(mazeSize, 1));
         for (int i = 0; i < mazeSize; i++) {
             leftBorderPanel.add(new JLabel("|", SwingConstants.CENTER));
         }
-    
         // 迷宫主体
         JPanel mazeBodyPanel = new JPanel(new GridLayout(mazeSize, mazeSize));
         for (int i = 0; i < mazeSize; i++) {
@@ -148,39 +158,35 @@ public class GameGUI extends JFrame {
                 mazeBodyPanel.add(cellLabel);  // 将迷宫格子添加到主体面板
             }
         }
-    
-        // 右边框
+
         JPanel rightBorderPanel = new JPanel(new GridLayout(mazeSize, 1));
         for (int i = 0; i < mazeSize; i++) {
             rightBorderPanel.add(new JLabel("|", SwingConstants.CENTER));
         }
     
-        // 将左边框、迷宫主体、右边框组合
-        centerPanelWithBorders.add(leftBorderPanel, BorderLayout.WEST);
-        centerPanelWithBorders.add(mazeBodyPanel, BorderLayout.CENTER);
-        centerPanelWithBorders.add(rightBorderPanel, BorderLayout.EAST);
-    
-        // 将组合好的迷宫主体添加到 mazePanel 中间
-        mazePanel.add(centerPanelWithBorders, BorderLayout.CENTER);
-    
-        // 添加底部边框
-        JPanel bottomBorderPanel = new JPanel(new GridLayout(1, mazeSize + 2));  // 1行，mazeSize+2列
+        JPanel bottomBorderPanel = new JPanel(new GridLayout(1, mazeSize + 2)); 
+        
         bottomBorderPanel.add(new JLabel("+", SwingConstants.CENTER));  // 左下角
         for (int j = 0; j < mazeSize; j++) {
             bottomBorderPanel.add(new JLabel("--", SwingConstants.CENTER));  // 底部水平边框
         }
         bottomBorderPanel.add(new JLabel("+", SwingConstants.CENTER));  // 右下角
-    
-        // 添加底部边框到 mazePanel
-        mazePanel.add(bottomBorderPanel, BorderLayout.SOUTH);
-    
-        // 刷新面板
+
+        JPanel combinedPanel = new JPanel(new BorderLayout());
+        combinedPanel.add(leftBorderPanel, BorderLayout.WEST);
+        combinedPanel.add(mazeBodyPanel, BorderLayout.CENTER);
+        combinedPanel.add(rightBorderPanel, BorderLayout.EAST);
+        combinedPanel.add(topBorderPanel, BorderLayout.NORTH);
+        combinedPanel.add(bottomBorderPanel, BorderLayout.SOUTH);
+
+        JPanel rightPanel = new JPanel();
+        rightPanel.setPreferredSize(new Dimension(50, 400)); 
+
+        mazePanel.add(combinedPanel, BorderLayout.CENTER);
+        mazePanel.add(rightPanel, BorderLayout.EAST);    
         mazePanel.revalidate();
         mazePanel.repaint();
     }
-    
-    
-    
 
     public void exitGame() {
         System.out.println("Exiting game for player: " + player.getPlayerId());
@@ -221,18 +227,46 @@ public class GameGUI extends JFrame {
         scoreLabel.setText("Score: " + score);
     }
 
+    public void processInput(){
+        Scanner scanner = new Scanner(System.in);
+        String command;
+        
+        while (true) {
+            System.out.print("> ");
+            command =  scanner.nextLine().trim();
+            try {
+                int move = Integer.parseInt(command);
+                if ( move>= 0 && move <= 4) {
+                    System.out.println("Moving player " + player.getPlayerId() + " to direction " + move);
+                    movePlayer(move);
+                } else if (move == 9) {
+                    exitGame();
+                    System.out.println("Player has exited the game.");
+                    return;  // 退出循环，结束程序
+                }else{
+                    System.out.println("Invalid command. Use 0, 1, 2, 3, 4, or 9.");
+                }
+            } catch (NumberFormatException e) {
+                // 捕获无法转换为整数的输入
+                System.out.println("Invalid input. Please enter a valid number (0, 1, 2, 3, 4, or 9).");
+            }
+        }
+    }
+
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
-            PlayerInfo player1 = new PlayerInfo("1", "127.0.0.1");
+            PlayerInfo player1 = new PlayerInfo("A", "127.0.0.1");
             player1.setPosition(0, 0);
 
-            PlayerInfo player2 = new PlayerInfo("2", "127.0.0.2");
+            PlayerInfo player2 = new PlayerInfo("B", "127.0.0.2");
             player2.setPosition(2, 2);
 
             List<PlayerInfo> players = List.of(player1, player2);
 
             GameGUI game = new GameGUI(player1, players); 
             game.setVisible(true);
+            // 启动标准输入读取线程
+            new Thread(() -> game.processInput()).start();
         });
     }
         
