@@ -111,7 +111,6 @@ public class GameGUI extends JFrame {
         }
     }
 
-
     public void updateMaze() {
         mazePanel.removeAll();  
         mazePanel.setLayout(new BorderLayout());
@@ -155,6 +154,7 @@ public class GameGUI extends JFrame {
                 JLabel cellLabel = new JLabel(String.valueOf(maze[i][j]), SwingConstants.CENTER);
                 cellLabel.setFont(monoFont);
                 cellLabel.setPreferredSize(labelSize);
+                cellLabel.setBorder(BorderFactory.createLineBorder(Color.BLACK));
                 mazeBodyPanel.add(cellLabel);  // 将迷宫格子添加到主体面板
             }
         }
