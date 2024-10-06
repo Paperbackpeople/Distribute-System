@@ -8,8 +8,6 @@ import java.util.List;
 
 public interface GameNodeInterface extends Remote {
     void receiveGossipMessage(GossipMessage message) throws RemoteException;
-    void receiveReplyMessage(GossipMessage reply) throws RemoteException;
-
     void ping() throws RemoteException;
     // GossipMessage getPrimaryNodeInfo() throws RemoteException;
 

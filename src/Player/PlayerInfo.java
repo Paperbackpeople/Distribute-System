@@ -5,19 +5,20 @@ import java.io.Serializable;
 public class PlayerInfo implements Serializable {
     private final String playerId;
     private String IpAddress;
-    private int port;
     private int x;
     private int y;
     private int score;
 
     // 构造函数
-    public PlayerInfo(String playerId, String playerAddress) {
+    public PlayerInfo(String playerId, String playerAddress, int x, int y, int score) {
         this.playerId = playerId;
         this.IpAddress = playerAddress;
-        this.port = 0; // 初始端口
         this.x = 0; // 初始位置
         this.y = 0;
         this.score = 0;
+    }
+    public PlayerInfo(String playerId) {
+        this.playerId = playerId;
     }
 
     // getter 和 setter 方法
@@ -50,12 +51,11 @@ public class PlayerInfo implements Serializable {
         IpAddress = ipAddress;
     }
 
-    public int getPort() {
-        return port;
-    }
-
-    public void setPort(int port) {
-        this.port = port;
+    @Override
+    public String toString() {
+        return "PlayerInfo{" +
+                "playerId='" + playerId + '\'' +
+                '}';
     }
 
     public void incrementScore() {
