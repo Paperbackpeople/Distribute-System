@@ -61,4 +61,8 @@ public class PlayerInfo implements Serializable {
     public void incrementScore() {
         this.score++;
     }
+
+    public void setScore(int score){
+        this.score = score;
+    }
 }

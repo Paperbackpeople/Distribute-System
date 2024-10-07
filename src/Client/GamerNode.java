@@ -17,6 +17,10 @@ import java.util.List;
 import java.util.Random;
 import java.util.logging.Logger;
 
+import GUI.GameGUI;
+
+import java.util.Scanner;
+
 public class GamerNode implements GameNodeInterface, TrackerCommunicationInterface {
     private static final Logger logger = Logger.getLogger(GamerNode.class.getName());
     private String playerId;
@@ -113,14 +117,47 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
 
     private void initializeGameState(List<PlayerInfo> players) {
         // 初始化游戏状态，如设置迷宫大小、玩家位置等
+        for(PlayerInfo p : players){
+            gameState.addPlayer(p);
+        }
+        gameState.initializeGameState();
+        PlayerInfo player = new PlayerInfo(playerId); 
+        GameGUI GUI = new GameGUI(player, gameState);
+        GUI.setVisible(true);
+        
         System.out.println("Initializing game state for player: " + playerId);
     }
 
-    private int getPlayerMove() {
+    //process input
+    //new Thread(() -> game.processInput()).start();
+    private void getPlayerMove() {
         // 获取玩家的移动输入，如0-4表示不同方向，9表示退出
-        return 0;
+        Scanner scanner = new Scanner(System.in);
+        String command;
+        
+        while (true) {
+            System.out.print("> ");
+            command =  scanner.nextLine().trim();
+            try {
+                int move = Integer.parseInt(command);
+                if ( move>= 0 && move <= 4) {
+                    System.out.println("Moving player " + playerId + " to direction " + move);
+                    handleMove(move);
+                } else if (move == 9) {
+                    exitGame();
+                    System.out.println("Player has exited the game.");
+                    return;  // 退出循环，结束程序
+                }else{
+                    System.out.println("Invalid command. Use 0, 1, 2, 3, 4, or 9.");
+                }
+            } catch (NumberFormatException e) {
+                // 捕获无法转换为整数的输入
+                System.out.println("Invalid input. Please enter a valid number (0, 1, 2, 3, 4, or 9).");
+            }
+        }
     }
-
+//我在GameState类里加了public void movePlayer(PlayerInfo player, int move) 用于移动
+//因为包含treasure，其他玩家和边界的检测，所以最好在有maze[][]的地方进行
     private void handleMove(int move) {
         try {
             if (move >= 0 && move <= 4) {
