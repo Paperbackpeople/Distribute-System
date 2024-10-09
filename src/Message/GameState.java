@@ -17,13 +17,26 @@ public class GameState implements Serializable {
     private HashMap<String, Position> playerPositions;
     private String[][]maze;
 
-    public GameState() {
-        this.players = new ArrayList<PlayerInfo>();
+    public GameState(int mazeSize, int numTreasures) {
+        this.mazeSize = mazeSize;
+        this.numTreasures = numTreasures;
         this.treasures = new HashMap<>();
-        this.maze = new String[mazeSize][mazeSize];
-        this.playerPositions = new HashMap<>();
+        this.players = new ArrayList<>();
         this.playerScores = new HashMap<>();
-
+        this.playerPositions = new HashMap<>();
+        this.maze = new String[mazeSize][mazeSize]; // 初始化二维数组
+    }
+    public GameState(GameState other){
+        this.mazeSize = other.mazeSize;
+        this.numTreasures = other.numTreasures;
+        this.treasures = new HashMap<>(other.treasures);
+        this.players = new ArrayList<>(other.players);
+        this.playerScores = new HashMap<>(other.playerScores);
+        this.playerPositions = new HashMap<>(other.playerPositions);
+        this.maze = new String[mazeSize][mazeSize];
+        for (int i = 0; i < other.mazeSize; i++) {
+            System.arraycopy(other.maze[i], 0, this.maze[i], 0, other.mazeSize);
+        }
     }
 
     public void initializeGameState() {
@@ -42,15 +55,15 @@ public class GameState implements Serializable {
                 x = random.nextInt(mazeSize);
                 y = random.nextInt(mazeSize);
             } while (!Objects.equals(maze[x][y], " "));
-            if(player.getX() != -1 && player.getY() != -1){
+            if(player.getX() == -1 && player.getY() == -1){
                 playerPositions.put(player.getPlayerId(), new Position(x, y));
                 playerScores.put(player.getPlayerId(), 0);
+                player.setPosition(x, y);
             }
             maze[x][y] = player.getPlayerId();
         }
 
         initializeTreasures();
-        System.out.println("Game state initialized with " + players.size() + " players and " + numTreasures + " treasures.");
     }
 
     public int getN() {
@@ -144,4 +157,16 @@ public class GameState implements Serializable {
         generateNewTreasure();
     }
 
+    @Override
+    public String toString() {
+        return "GameState{" +
+                "mazeSize=" + mazeSize +
+                ", numTreasures=" + numTreasures +
+                ", treasures=" + treasures +
+                ", players=" + players +
+                ", playerScores=" + playerScores +
+                ", playerPositions=" + playerPositions +
+                ", maze=" + Arrays.deepToString(maze) +
+                '}';
+    }
 }

@@ -76,7 +76,7 @@ public class Tracker extends UnicastRemoteObject implements TrackerInterface {
         List<PlayerInfo> updatedPlayers = message.getPlayerList();
         this.players = updatedPlayers;
         version = message.getVersion();
-        System.out.println("Player list updated by primary node." + "Current version: " + version+ "Current player list: " + players);
+        System.out.println("Player list updated by primary node." +  "Current player list: " + players);
     }
 
 

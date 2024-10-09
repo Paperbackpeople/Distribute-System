@@ -42,11 +42,10 @@ public class PlayerInfo implements Serializable {
     @Override
     public String toString() {
         return "PlayerInfo{" +
-                "playerId='" + playerId + '\'' +
+                "playerId='" + playerId +
                 ", x=" + x +
                 ", y=" + y +
-                ", score=" + score +
-                '}';
+                "}";
     }
 
     // 重写 equals() 方法
