@@ -17,12 +17,11 @@ public class TrackerMessage implements Serializable {
     private PlayerInfo senderInfo; // 发送者信息
 
     // 构造函数
-    public TrackerMessage(String messageType, List<PlayerInfo> playerList, int mazeSize, int k, int version, PlayerInfo senderInfo) {
+    public TrackerMessage(String messageType, List<PlayerInfo> playerList, int mazeSize, int k,  PlayerInfo senderInfo) {
         this.messageType = messageType;
         this.playerList = playerList;
         this.N = mazeSize;
         this.k = k;
-        this.version = version;
         this.senderInfo = senderInfo;
     }
 

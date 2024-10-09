@@ -2,19 +2,19 @@ package Client;
 import Interface.GameNodeInterface;
 import Interface.TrackerCommunicationInterface;
 import Interface.TrackerInterface;
+import Position.Position;
 import Message.ElectionMessage;
 import Message.GameState;
 import Message.GossipMessage;
 import Message.TrackerMessage;
 import Player.PlayerInfo;
+import Treasure.TreasureInfo;
+
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Random;
+import java.util.*;
 import java.util.logging.Logger;
 
 public class GamerNode implements GameNodeInterface, TrackerCommunicationInterface {
@@ -33,26 +33,32 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
     private PlayerInfo playerInfo;
     boolean electionInProgress = false;
     int electionVersion = 0;
+    private Scanner scanner;
+    private boolean running;
 
 
-    public GamerNode(String trackerIp, int trackerPort, String playerId) {
+    public GamerNode(String trackerIp, int trackerPort, String playerId, Scanner scanner) {
         this.playerId = playerId;
+        this.scanner = scanner;
+        this.running = true;
         try {
             // 1. 连接到 Tracker
             Registry trackerRegistry = LocateRegistry.getRegistry(trackerIp, trackerPort);
             tracker = (TrackerInterface) trackerRegistry.lookup("Tracker");
             this.playerInfo = new PlayerInfo(playerId);
             sendJoinToTracker();
+            Thread.sleep(2000);
             // 4. 绑定 RMI 服务
             GameNodeInterface stub = (GameNodeInterface) UnicastRemoteObject.exportObject(this, 0);
             Registry localRegistry = LocateRegistry.getRegistry(); // 获取本地 RMI 注册表
             localRegistry.bind("GameNode_" + playerId, stub); // 使用唯一名称绑定对象，避免命名冲突
             requestPrimaryNodeInfoAndNotifyJoin();
-            Thread.sleep(1000);
+            Thread.sleep(2000);
+            System.out.println("GamerNode " + playerId + " is ready to gossip!");
             startGossip();
             startPinging();
             if (isPrimary) {
-                initializeGameState(players);
+                gameState.initializeGameState();
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -65,7 +71,7 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
         new Thread(() -> {
             while (true) {
                 try {
-                    sendTrackerMessage(new TrackerMessage("UPDATE", updatedPlayers, gameState.getN(), gameState.getK(), version, this.playerInfo));
+                    sendTrackerMessage(new TrackerMessage("UPDATE", updatedPlayers, gameState.getN(), gameState.getK(),  this.playerInfo));
                     Thread.sleep(1000);
                 } catch (Exception e) {
                     e.printStackTrace();
@@ -111,22 +117,55 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
         return players.get(index);
     }
 
-    private void initializeGameState(List<PlayerInfo> players) {
-        // 初始化游戏状态，如设置迷宫大小、玩家位置等
-        System.out.println("Initializing game state for player: " + playerId);
+    // 启动游戏
+    public void start() {
+        // 启动输入线程
+        Thread inputThread = new Thread(new InputHandler());
+        inputThread.start();
     }
 
-    private int getPlayerMove() {
-        // 获取玩家的移动输入，如0-4表示不同方向，9表示退出
-        return 0;
+    // 处理用户输入的内部类
+    private class InputHandler implements Runnable {
+        @Override
+        public void run() {
+            while (running) {
+                System.out.print("请输入您的移动 (0: 上, 1: 下, 2: 左, 3: 右, 9: 退出): ");
+                String input = scanner.nextLine();
+                try {
+                    int move = Integer.parseInt(input);
+                    handleMove(move);
+                } catch (NumberFormatException e) {
+                    System.out.println("无效的输入，请输入数字。");
+                }
+            }
+        }
     }
 
-    private void handleMove(int move) {
+
+    private synchronized void handleMove(int move) {
         try {
             if (move >= 0 && move <= 4) {
-                // 移动玩家
-                System.out.println("Moving player " + playerId + " to direction " + move);
-            } else if (move == 9) {
+                movePlayer(move);
+                if (isPrimary){
+                    synchronized (gameState) {
+                        gameState.setPlayers(updatedPlayers);
+                        Position curplayerPosition = gameState.getPlayerPositions().getOrDefault(playerId, new Position(-1, -1));
+                        if(curplayerPosition.getX() != -1 && curplayerPosition.getY() != -1){
+                            if(Objects.equals(gameState.getMaze()[curplayerPosition.getX()][curplayerPosition.getY()], "*")){
+                                gameState.getPlayerScores().put(playerId, gameState.getPlayerScores().get(playerId) + 1);
+                                gameState.getTreasures().remove(new Position(curplayerPosition.getX(), curplayerPosition.getY()));
+                                gameState.generateNewTreasure();
+                            }else{
+                                gameState.getMaze()[curplayerPosition.getX()][curplayerPosition.getY()] = playerId;
+                            }
+                            gameState.getPlayerPositions().put(playerId, curplayerPosition);
+                            gameState.getMaze()[curplayerPosition.getX()][curplayerPosition.getY()] = playerId;
+                        }
+                    }
+                }else {
+                    sendGossipMessageMove(primaryNode);
+                }
+                } else if (move == 9) {
                 exitGame();
             }
         } catch (Exception e) {
@@ -145,30 +184,51 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
             e.printStackTrace();
         }
     }
+    public void movePlayer(int move) {
+        int X = gameState.getPlayerPositions().get(playerId).getX();
+        int Y = gameState.getPlayerPositions().get(playerId).getY();
+        switch (move) {
+            case 0: break;
+            case 1: X = X-1; break; // Move left
+            case 2: Y = Y+1; break; // Move down
+            case 3: X = X+1; break; // Move right
+            case 4: Y = Y-1; break; // Move up
+            default: return;
+        }
+        // Check if new position is within bounds
+        if (X >= 0 && X < gameState.getMazeSize() && Y >= 0 && Y < gameState.getMazeSize()) {
+            gameState.getPlayerPositions().put(playerId, new Position(X, Y));
+            System.out.println("Player " + playerId + " moved to position (" + X + ", " + Y + ")");
+        }else {
+            System.out.println("Invalid move: out of bounds");
+        }
+    }
+
     public void receiveGossipMessagePrimary(GossipMessage message){
         boolean changed = false; // 标记是否有更新或移除操作
-        // 1. 处理更新的玩家信息
-        if (message.getUpdatedPlayers() != null && !message.getUpdatedPlayers().isEmpty()) {
-            synchronized (players) {
-                for (PlayerInfo player : message.getUpdatedPlayers()) {
-                    if(player.getPlayerId().equals(this.playerId)){
-                        continue;
-                    }
-                    boolean playerExists = players.stream()
-                            .anyMatch(p -> p.getPlayerId().equals(player.getPlayerId()));
-                    if (!playerExists) {
-                        players.add(player);
-                        this.updatedPlayers.add(player);
-                        changed = true;
-                        System.out.println("Added new player from gossip: " + player.getPlayerId());
-                    }
+        boolean moved = (message.getGameState() != null);
+        synchronized (players) {
+            for (PlayerInfo player : message.getUpdatedPlayers()) {
+                boolean playerExists = players.stream()
+                        .anyMatch(p -> p.getPlayerId().equals(player.getPlayerId()));
+                boolean updated = updatedPlayers.stream()
+                        .anyMatch(p -> p.getPlayerId().equals(player.getPlayerId()));
+                if (!playerExists && !player.getPlayerId().equals(this.playerId) && !player.getPlayerId().isEmpty()) {
+                    players.add(player);
+                    changed = true;
+                    System.out.println("Added new player from gossip: " + player.getPlayerId());
+                }
+                if(!updatedPlayers.contains(player) && !updated){
+                    updatedPlayers.add(player);
+                    changed = true;
+
                 }
             }
         }
 
+
         if(message.getBackupNode() != null) {
             if (this.backupNode == null || crashedPlayers.contains(this.backupNode)) {
-                logger.info("Updated backup node from gossip: " + message.getBackupNode().getPlayerId());
                 this.backupNode = message.getBackupNode();
                 changed = true;
             }
@@ -179,8 +239,20 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
                 for (PlayerInfo crashedPlayer : message.getCrashedPlayers()) {
                     String crashedPlayerId = crashedPlayer.getPlayerId();
                     boolean removed = players.removeIf(player -> player.getPlayerId().equals(crashedPlayerId));
+                    boolean removedUpdated = updatedPlayers.removeIf(player -> player.getPlayerId().equals(crashedPlayerId));
+                    boolean alreadyCrashed = crashedPlayers.stream()
+                            .anyMatch(player -> player.getPlayerId().equals(crashedPlayerId));
+                    if (!alreadyCrashed) {
+                        synchronized (crashedPlayers) {
+                            crashedPlayers.add(crashedPlayer);
+                        }
+                    }
                     if (removed) {
                         System.out.println("Removed crashed player from gossip: " + crashedPlayerId);
+                        changed = true;
+                    }
+                    if (removedUpdated) {
+                        System.out.println("Removed crashed player from updated players: " + crashedPlayerId);
                         changed = true;
                     }
                     if (crashedPlayerId.equals(backupNode.getPlayerId())) {
@@ -197,14 +269,31 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
             this.version++;
             System.out.println("Updated version to: " + version);
         }
-        sendGossipMessagePrimary(message.getSenderInfo());
+        if (moved){
+            synchronized (gameState) {
+                gameState.setPlayers(updatedPlayers);
+                Position curplayerPosition = gameState.getPlayerPositions().getOrDefault(playerId, new Position(-1, -1));
+                if(curplayerPosition.getX() != -1 && curplayerPosition.getY() != -1){
+                    if(Objects.equals(gameState.getMaze()[curplayerPosition.getX()][curplayerPosition.getY()], "*")){
+                        gameState.getPlayerScores().put(playerId, gameState.getPlayerScores().get(playerId) + 1);
+                        gameState.getTreasures().remove(new Position(curplayerPosition.getX(), curplayerPosition.getY()));
+                        gameState.generateNewTreasure();
+                    }else{
+                        gameState.getMaze()[curplayerPosition.getX()][curplayerPosition.getY()] = playerId;
+                    }
+                    gameState.getPlayerPositions().put(playerId, curplayerPosition);
+                    gameState.getMaze()[curplayerPosition.getX()][curplayerPosition.getY()] = playerId;
+                }
+            }
+        }
+
+        sendGossipMessagePrimary(message.getSenderInfo(), moved);
     }
 
     public void receiveGossipMessageNormal(GossipMessage message){
         logger.info("Received gossip message from " + message.getSenderInfo().getPlayerId());
-        logger.info("version: " + version);
-        logger.info("message version: " + message.getVersion());
-        if (message.getVersion() >= this.version) {
+        logger.info(message.getVersion() + " " + version);
+        if (message.getVersion() > this.version) {
             this.primaryNode = message.getPrimaryNode();
             this.backupNode = message.getBackupNode();
             this.version = message.getVersion();
@@ -247,7 +336,7 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
 //            updateGameStateAfterCrashGossip(message.getCrashedPlayers());
         }
         if(message.getUpdatedPlayers().size() == 1 && message.getCrashedPlayers().isEmpty()){
-            sendGossipMessage(message.getSenderInfo());
+            sendGossipMessagetoNew(message.getSenderInfo());
         }
     }
     @Override
@@ -264,19 +353,43 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
             Registry registry = LocateRegistry.getRegistry("localhost", 1099);
             GameNodeInterface node = (GameNodeInterface) registry.lookup("GameNode_" + targetNode.getPlayerId());
             GossipMessage message = new GossipMessage(primaryNode, backupNode, version, updatedPlayers, crashedPlayers, this.playerInfo, null);
-            System.out.println("我的信息"+message);
+            System.out.println("我的信息"+message + "发送给" + targetNode.getPlayerId());
             node.receiveGossipMessage(message);
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
-    public void sendGossipMessagePrimary(PlayerInfo targetNode) {
-        logger.info("Sending gossip message to " + targetNode.getPlayerId());
-        logger.info("backupNode: " + backupNode);
+    public void sendGossipMessageMove(PlayerInfo targetNode) {
         try {
             Registry registry = LocateRegistry.getRegistry("localhost", 1099);
             GameNodeInterface node = (GameNodeInterface) registry.lookup("GameNode_" + targetNode.getPlayerId());
-            GossipMessage message = new GossipMessage(primaryNode, backupNode,version, updatedPlayers, crashedPlayers, this.playerInfo, gameState);
+            GossipMessage message = new GossipMessage(primaryNode, backupNode, version, updatedPlayers, crashedPlayers, this.playerInfo, gameState);
+            node.receiveGossipMessage(message);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+    public void sendGossipMessagetoNew(PlayerInfo targetNode) {
+        try {
+            Registry registry = LocateRegistry.getRegistry("localhost", 1099);
+            GameNodeInterface node = (GameNodeInterface) registry.lookup("GameNode_" + targetNode.getPlayerId());
+            GossipMessage message = new GossipMessage(primaryNode, backupNode, 0, updatedPlayers, crashedPlayers, this.playerInfo, null);
+            System.out.println("我的信息"+message + "发送给" + targetNode.getPlayerId());
+            node.receiveGossipMessage(message);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+    public void sendGossipMessagePrimary(PlayerInfo targetNode, boolean moved) {
+        try {
+            GossipMessage message;
+            Registry registry = LocateRegistry.getRegistry("localhost", 1099);
+            GameNodeInterface node = (GameNodeInterface) registry.lookup("GameNode_" + targetNode.getPlayerId());
+            if (moved){
+                message = new GossipMessage(primaryNode, backupNode,version, updatedPlayers, crashedPlayers, this.playerInfo, gameState);
+            }else {
+                message = new GossipMessage(primaryNode, backupNode,version, updatedPlayers, crashedPlayers, this.playerInfo, null);
+            }
             System.out.println("我的信息"+message);
             node.receiveGossipMessage(message);
         } catch (Exception e) {
@@ -473,7 +586,7 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
                             Registry registry = LocateRegistry.getRegistry("localhost", 1099);
                             GameNodeInterface node = (GameNodeInterface) registry.lookup("GameNode_" + primaryNode.getPlayerId());
                             node.ping();
-                            System.out.println("Pinged primary node " + primaryNode.getPlayerId());
+                            System.out.println("Pinged primary node " + primaryNode.getPlayerId() + "updatedPlayers" + updatedPlayers);
                             node.receiveGossipMessage(new GossipMessage(primaryNode, backupNode,version, updatedPlayers, crashedPlayers, this.playerInfo, null));
                         } catch (Exception e) {
                             // 如果无法连接到目标玩家，认为其已崩溃
@@ -499,13 +612,12 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
 
         // 将崩溃的节点添加到 crashedPlayers 列表中，以便通过 Gossip 传播
         synchronized (crashedPlayers) {
-            if (!crashedPlayers.contains(crashedPlayer.getPlayerId())) {
+            boolean alreadyCrashed = crashedPlayers.stream()
+                    .anyMatch(player -> player.getPlayerId().equals(crashedPlayer.getPlayerId()));
+            if (!alreadyCrashed) {
                 crashedPlayers.add(crashedPlayer);
             }
         }
-
-        // 更新游戏状态，移除崩溃玩家的角色
-//        updateGameStateAfterCrash(crashedPlayer.getPlayerId());
 
         // 如果崩溃的节点是主服务器或备份服务器
         if (crashedPlayer.getPlayerId().equals(primaryNode.getPlayerId())) {
@@ -548,6 +660,7 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
         int nodesToContact = Math.min(3, players.size()); // 最多联系3个节点
         Collections.shuffle(players);
         List<PlayerInfo> nodesToInteract = players.subList(0, nodesToContact);
+        System.out.println("Nodes to interact: " + nodesToInteract);
         for (PlayerInfo player : nodesToInteract) {
             try {
                 this.updatedPlayers.add(this.playerInfo);
@@ -559,8 +672,11 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
                         throw new RuntimeException(e);
                     }
                 }
+                System.out.println("&&&&");
                 sendGossipMessage(primaryNode);
-                if (backupNode == null) {
+                System.out.println("$$$$");
+
+                if (backupNode == null && !isBackup && !isPrimary && primaryNode != null) {
                     becomeBackup();
                     sendGossipMessage(primaryNode);
                 }
@@ -582,7 +698,6 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
                     List.of(this.playerInfo),
                     0,
                     0,
-                    version,
                     this.playerInfo
             );
 
@@ -594,7 +709,6 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
                 this.players = response.getPlayerList();
                 this.gameState.setK(response.getK());
                 this.gameState.setN(response.getMazeSize());
-                this.version = response.getVersion();
                 System.out.println("Received JOIN_RESPONSE from Tracker. Player list : " + players);
             }
         } catch (RemoteException e) {

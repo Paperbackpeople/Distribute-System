@@ -1,22 +1,14 @@
 package Player;
 
 import java.io.Serializable;
+import java.util.Objects;
 
 public class PlayerInfo implements Serializable {
     private final String playerId;
-    private String IpAddress;
-    private int x;
-    private int y;
-    private int score;
+    private int x = -1;
+    private int y = -1;
+    private int score = 0;
 
-    // 构造函数
-    public PlayerInfo(String playerId, String playerAddress, int x, int y, int score) {
-        this.playerId = playerId;
-        this.IpAddress = playerAddress;
-        this.x = 0; // 初始位置
-        this.y = 0;
-        this.score = 0;
-    }
     public PlayerInfo(String playerId) {
         this.playerId = playerId;
     }
@@ -43,22 +35,34 @@ public class PlayerInfo implements Serializable {
         this.y = y;
     }
 
-    public String getIpAddress() {
-        return IpAddress;
-    }
-
-    public void setIpAddress(String ipAddress) {
-        IpAddress = ipAddress;
+    public void incrementScore() {
+        this.score++;
     }
 
     @Override
     public String toString() {
         return "PlayerInfo{" +
                 "playerId='" + playerId + '\'' +
+                ", x=" + x +
+                ", y=" + y +
+                ", score=" + score +
                 '}';
     }
 
-    public void incrementScore() {
-        this.score++;
+    // 重写 equals() 方法
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        PlayerInfo that = (PlayerInfo) o;
+
+        return Objects.equals(playerId, that.playerId);
+    }
+
+    // 重写 hashCode() 方法
+    @Override
+    public int hashCode() {
+        return Objects.hash(playerId);
     }
 }

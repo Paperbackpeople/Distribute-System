@@ -54,7 +54,6 @@ public class Tracker extends UnicastRemoteObject implements TrackerInterface {
                 new ArrayList<>(players),
                 N,
                 K,
-                version,
                 new PlayerInfo(trackerId)
         );
 
