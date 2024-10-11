@@ -18,6 +18,7 @@ import java.time.LocalTime;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
 
 public class GamerNode implements GameNodeInterface, TrackerCommunicationInterface {
     private Thread normalGossipThread;
@@ -115,7 +116,7 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
 //                        System.out.println("没有备份节点可发送 Gossip 消息。尝试选择新的备份节点...");
                         selectNewBackup();
                     }
-                    Thread.sleep(500);
+                    Thread.sleep(100);
                 } catch (Exception e) {
                     System.out.println("主节点发生异常：" + e.getMessage());
                     // 根据需要处理其他异常
@@ -398,6 +399,12 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
                     String crashedPlayerId = crashedPlayer.getPlayerId();
                     boolean removed = players.removeIf(player -> player.getPlayerId().equals(crashedPlayerId));
                     boolean removedUpdated = updatedPlayers.removeIf(player -> player.getPlayerId().equals(crashedPlayerId));
+                    // 便利crashedPlayers玩家，如果updatePlayers中有这个玩家，就将其移除
+                    for (PlayerInfo crashedP : crashedPlayers) {
+                        updatedPlayers.removeIf(player -> player.getPlayerId().equals(crashedP.getPlayerId()));
+                        players.removeIf(player -> player.getPlayerId().equals(crashedP.getPlayerId()));
+                    }
+
                     boolean alreadyCrashed = crashedPlayers.stream()
                             .anyMatch(player -> player.getPlayerId().equals(crashedPlayerId));
                     if (!alreadyCrashed) {
@@ -827,22 +834,125 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
             }
         }
     }
-    private void handlePrimaryNodeCrash() {
-        synchronized (this) {
-            System.out.println("备份节点检测到主节点崩溃。正在尝试选举新的主节点...");
-            crashedPlayers.add(primaryNode);
-            // 从 updatedPlayers 中选择候选节点（排除自己和已崩溃的节点）
-            List<PlayerInfo> candidates = new ArrayList<>(updatedPlayers);
-            candidates.removeIf(player -> player.getPlayerId().equals(this.playerId)); // 移除自己
-            candidates.removeIf(player -> crashedPlayers.stream()
-                    .anyMatch(cp -> cp.getPlayerId().equals(player.getPlayerId()))); // 移除已崩溃的节点
-            if(primaryNode != null){
-                candidates.removeIf(player -> player.getPlayerId().equals(primaryNode.getPlayerId()));
-            }
-            System.out.println("主节点的候选节点：" + candidates);
-            boolean newPrimaryElected = false;
+//    private void handlePrimaryNodeCrash() {
+//        synchronized (this) {
+//            System.out.println("备份节点检测到主节点崩溃。正在尝试选举新的主节点...");
+//            crashedPlayers.add(primaryNode);
+//            // 从 updatedPlayers 中选择候选节点（排除自己和已崩溃的节点）
+//            List<PlayerInfo> candidates = new ArrayList<>(updatedPlayers);
+//            candidates.removeIf(player -> player.getPlayerId().equals(this.playerId)); // 移除自己
+//            candidates.removeIf(player -> crashedPlayers.stream()
+//                    .anyMatch(cp -> cp.getPlayerId().equals(player.getPlayerId()))); // 移除已崩溃的节点
+//            if(primaryNode != null){
+//                candidates.removeIf(player -> player.getPlayerId().equals(primaryNode.getPlayerId()));
+//            }
+//            System.out.println("主节点的候选节点：" + candidates);
+//            boolean newPrimaryElected = false;
+//
+//            if (!candidates.isEmpty()) {
+//                Collections.shuffle(candidates);
+//                for (PlayerInfo candidate : candidates) {
+//                    try {
+//                        Registry registry = LocateRegistry.getRegistry("localhost", 1099);
+//                        GameNodeInterface candidateStub = (GameNodeInterface) registry.lookup("GameNode_" + candidate.getPlayerId());
+//                        candidateStub.ping();
+//                        // 候选节点存活，设置为新的主节点
+//                        candidateStub.becomePrimary();
+//                        // 现在将信息同步到新的主节点
+//                        primaryNode = candidate;
+//                        GossipMessage message = new GossipMessage(
+//                                primaryNode,
+//                                backupNode,
+//                                version,
+//                                updatedPlayers,
+//                                crashedPlayers,
+//                                this.playerInfo,
+//                                gameState,
+//                                GossipMessage.MessageType.BACKUP_SYNC
+//                        );
+//                        candidateStub.receiveGossipMessage(message);
+//                        System.out.println("已选举新的主节点：" + candidate.getPlayerId());
+//                        newPrimaryElected = true;
+//                        break;
+//                    } catch (Exception e) {
+//                        System.out.println("无法联系候选节点 " + candidate.getPlayerId() + "：" + e.getMessage());
+//                        // 尝试下一个候选节点
+//                    }
+//                }
+//            } else {
+//                System.out.println("没有可用的候选节点可选为新的主节点。");
+//            }
+//
+//            if (!newPrimaryElected) {
+//                // 如果没有成功选举新的主节点，备份节点自身升级为主节点
+//                try {
+//                    System.out.println("备份节点将自身升级为主节点。");
+//                    backupNode = null;
+//                    becomePrimary();
+//                    // 更新 primaryNode 为自身
+//                    primaryNode = this.playerInfo;
+//                    // 通知其他节点新的主节点信息
+//                } catch (Exception e) {
+//                    System.out.println("备份节点升级为主节点时发生错误：" + e.getMessage());
+//                    e.printStackTrace();
+//                }
+//            }
+//        }
+//    }
+private void handlePrimaryNodeCrash() {
+    synchronized (this) {
+        System.out.println("备份节点检测到主节点崩溃。正在尝试选举新的主节点...");
+        crashedPlayers.add(primaryNode);
 
-            if (!candidates.isEmpty()) {
+        // 从 updatedPlayers 中选择候选节点（排除自己和已崩溃的节点）
+        List<PlayerInfo> candidates = new ArrayList<>(updatedPlayers);
+        candidates.removeIf(player -> player.getPlayerId().equals(this.playerId)); // 移除自己
+        candidates.removeIf(player -> crashedPlayers.stream()
+                .anyMatch(cp -> cp.getPlayerId().equals(player.getPlayerId()))); // 移除已崩溃的节点
+        if (primaryNode != null) {
+            candidates.removeIf(player -> player.getPlayerId().equals(primaryNode.getPlayerId()));
+        }
+
+        System.out.println("主节点的候选节点：" + candidates);
+        boolean newPrimaryElected = false;
+
+        if (!candidates.isEmpty()) {
+            // 首先查找 playerId 中包含 "ae" 的候选节点
+            Optional<PlayerInfo> aeCandidateOpt = candidates.stream()
+                    .filter(player -> player.getPlayerId().contains("ae"))
+                    .findFirst();
+
+            if (aeCandidateOpt.isPresent()) {
+                PlayerInfo aeCandidate = aeCandidateOpt.get();
+                try {
+                    Registry registry = LocateRegistry.getRegistry("localhost", 1099);
+                    GameNodeInterface aeCandidateStub = (GameNodeInterface) registry.lookup("GameNode_" + aeCandidate.getPlayerId());
+                    aeCandidateStub.ping();
+                    // 候选节点存活，设置为新的主节点
+                    aeCandidateStub.becomePrimary();
+                    // 现在将信息同步到新的主节点
+                    primaryNode = aeCandidate;
+                    GossipMessage message = new GossipMessage(
+                            primaryNode,
+                            backupNode,
+                            version,
+                            updatedPlayers,
+                            crashedPlayers,
+                            this.playerInfo,
+                            gameState,
+                            GossipMessage.MessageType.BACKUP_SYNC
+                    );
+                    aeCandidateStub.receiveGossipMessage(message);
+                    System.out.println("已选举新的主节点：" + aeCandidate.getPlayerId());
+                    newPrimaryElected = true;
+                } catch (Exception e) {
+                    System.out.println("无法联系包含 'ae' 的候选节点 " + aeCandidateOpt.get().getPlayerId() + "：" + e.getMessage());
+                    // 如果无法选举 "ae" 候选节点，继续尝试其他候选节点
+                }
+            }
+
+            // 如果尚未选举出新的主节点，则继续随机选举其他候选节点
+            if (!newPrimaryElected) {
                 Collections.shuffle(candidates);
                 for (PlayerInfo candidate : candidates) {
                     try {
@@ -872,26 +982,28 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
                         // 尝试下一个候选节点
                     }
                 }
-            } else {
-                System.out.println("没有可用的候选节点可选为新的主节点。");
             }
+        } else {
+            System.out.println("没有可用的候选节点可选为新的主节点。");
+        }
 
-            if (!newPrimaryElected) {
-                // 如果没有成功选举新的主节点，备份节点自身升级为主节点
-                try {
-                    System.out.println("备份节点将自身升级为主节点。");
-                    backupNode = null;
-                    becomePrimary();
-                    // 更新 primaryNode 为自身
-                    primaryNode = this.playerInfo;
-                    // 通知其他节点新的主节点信息
-                } catch (Exception e) {
-                    System.out.println("备份节点升级为主节点时发生错误：" + e.getMessage());
-                    e.printStackTrace();
-                }
+        if (!newPrimaryElected) {
+            // 如果没有成功选举新的主节点，备份节点自身升级为主节点
+            try {
+                System.out.println("备份节点将自身升级为主节点。");
+                backupNode = null;
+                becomePrimary();
+                // 更新 primaryNode 为自身
+                primaryNode = this.playerInfo;
+                // 通知其他节点新的主节点信息
+                // （此处可以添加通知逻辑，例如广播新的主节点信息）
+            } catch (Exception e) {
+                System.out.println("备份节点升级为主节点时发生错误：" + e.getMessage());
+                e.printStackTrace();
             }
         }
     }
+}
     private boolean isPrimaryNodeAlive() {
         try {
             Registry registry = LocateRegistry.getRegistry("localhost", 1099);
@@ -902,34 +1014,104 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
             return false;
         }
     }
-    private void requestPrimaryNodeInfoAndNotifyJoin() {
-        players.removeIf(player -> player.getPlayerId().equals(this.playerId)); // 排除自己
-        if (players.isEmpty()) {
-            updatedPlayers.add(this.playerInfo);
-            try {
-                becomePrimary();
-            } catch (RemoteException e) {
-                throw new RuntimeException(e);
-            }
-            System.out.println("No existing nodes found. This node becomes the primary node.");
-            return;
+//    private void requestPrimaryNodeInfoAndNotifyJoin() {
+//        players.removeIf(player -> player.getPlayerId().equals(this.playerId)); // 排除自己
+//        if (players.isEmpty()) {
+//            updatedPlayers.add(this.playerInfo);
+//            try {
+//                becomePrimary();
+//            } catch (RemoteException e) {
+//                throw new RuntimeException(e);
+//            }
+//            System.out.println("No existing nodes found. This node becomes the primary node.");
+//            return;
+//        }
+//        int nodesToContact = Math.min(3, players.size()); // 最多联系3个节点
+//        Collections.shuffle(players);
+//        List<PlayerInfo> nodesToInteract = players.subList(0, nodesToContact);
+//        System.out.println("Nodes to interact: " + nodesToInteract);
+//        for (PlayerInfo player : nodesToInteract) {
+//            try {
+//                this.updatedPlayers.add(this.playerInfo);
+//                sendGossipMessage(player);
+//                while ((primaryNode == null) && !isPrimary) {
+//                    try {
+//                        Thread.sleep(100);
+//                    } catch (InterruptedException e) {
+//                        throw new RuntimeException(e);
+//                    }
+//                }
+//                try {
+//                    Registry registry = LocateRegistry.getRegistry("localhost", 1099);
+//                    GameNodeInterface primaryStub = (GameNodeInterface) registry.lookup("GameNode_" + primaryNode.getPlayerId());
+//                    GossipMessage message = new GossipMessage(
+//                            primaryNode, // 旧的主节点（已崩溃）
+//                            backupNode,
+//                            version,
+//                            updatedPlayers,
+//                            crashedPlayers,
+//                            this.playerInfo,
+//                            gameState,
+//                            GossipMessage.MessageType.JOIN
+//                    );
+//                    primaryStub.receiveGossipMessage(message);
+//                } catch (Exception e) {
+//                    System.out.println("无法联系主节点：" + e.getMessage());
+//                }
+//                System.out.println(playerInfo);
+//                if (backupNode == null && !isBackup && !isPrimary && primaryNode != null) {
+//                    becomeBackup();
+//                    sendGossipMessage(primaryNode);
+//                }
+//                break; // 已成功获取主节点信息，退出循环
+//
+//
+//            }
+//            catch (Exception e) {
+//                e.printStackTrace();
+//            }
+//        }
+//    }
+public void requestPrimaryNodeInfoAndNotifyJoin() {
+    // 移除自己
+    players.removeIf(player -> player.getPlayerId().equals(this.playerId));
+
+    if (players.isEmpty()) {
+        // 如果没有其他节点，自己成为主节点
+        updatedPlayers.add(this.playerInfo);
+        try {
+            becomePrimary();
+        } catch (RemoteException e) {
+            throw new RuntimeException(e);
         }
-        int nodesToContact = Math.min(3, players.size()); // 最多联系3个节点
-        Collections.shuffle(players);
-        List<PlayerInfo> nodesToInteract = players.subList(0, nodesToContact);
-        System.out.println("Nodes to interact: " + nodesToInteract);
-        for (PlayerInfo player : nodesToInteract) {
+        System.out.println("No existing nodes found. This node becomes the primary node.");
+        return;
+    }
+
+    // 查找是否存在 playerId 包含 "ae" 的玩家
+    List<PlayerInfo> aePlayers = players.stream()
+            .filter(player -> player.getPlayerId().contains("ae"))
+            .toList();
+
+    if (!aePlayers.isEmpty()) {
+        // 存在 "ae" 玩家，优先向这些玩家发送 GossipMessage
+        System.out.println("Found 'ae' players: " + aePlayers);
+        for (PlayerInfo aePlayer : aePlayers) {
             try {
                 this.updatedPlayers.add(this.playerInfo);
-                sendGossipMessage(player);
+                sendGossipMessage(aePlayer);
+
+                // 等待 primaryNode 被设置或自己成为主节点
                 while ((primaryNode == null) && !isPrimary) {
                     try {
-                        Thread.sleep(1000);
+                        Thread.sleep(100);
                     } catch (InterruptedException e) {
                         throw new RuntimeException(e);
                     }
                 }
-                try {
+
+                // 尝试联系主节点并发送 JOIN 消息
+                if (primaryNode != null) {
                     Registry registry = LocateRegistry.getRegistry("localhost", 1099);
                     GameNodeInterface primaryStub = (GameNodeInterface) registry.lookup("GameNode_" + primaryNode.getPlayerId());
                     GossipMessage message = new GossipMessage(
@@ -943,23 +1125,80 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
                             GossipMessage.MessageType.JOIN
                     );
                     primaryStub.receiveGossipMessage(message);
-                } catch (Exception e) {
-                    System.out.println("无法联系主节点：" + e.getMessage());
                 }
-                System.out.println(playerInfo);
+
+                System.out.println(this.playerInfo);
+
                 if (backupNode == null && !isBackup && !isPrimary && primaryNode != null) {
                     becomeBackup();
                     sendGossipMessage(primaryNode);
                 }
-                break; // 已成功获取主节点信息，退出循环
 
+                // 已成功发送给 "ae" 玩家，退出方法
+                return;
 
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
+                System.out.println("发送 GossipMessage 给 'ae' 玩家 " + aePlayer.getPlayerId() + " 时发生错误：" + e.getMessage());
                 e.printStackTrace();
+                // 继续尝试下一个 "ae" 玩家
             }
         }
+        // 如果所有 "ae" 玩家都无法联系，则继续执行原有逻辑
     }
+
+    // 如果不存在 "ae" 玩家，或者所有 "ae" 玩家都无法联系，执行原有的随机选择逻辑
+    int nodesToContact = Math.min(3, players.size()); // 最多联系3个节点
+    Collections.shuffle(players);
+    List<PlayerInfo> nodesToInteract = players.subList(0, nodesToContact);
+    System.out.println("Nodes to interact: " + nodesToInteract);
+
+    for (PlayerInfo player : nodesToInteract) {
+        try {
+            this.updatedPlayers.add(this.playerInfo);
+            sendGossipMessage(player);
+
+            // 等待 primaryNode 被设置或自己成为主节点
+            while ((primaryNode == null) && !isPrimary) {
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
+            // 尝试联系主节点并发送 JOIN 消息
+            try {
+                Registry registry = LocateRegistry.getRegistry("localhost", 1099);
+                GameNodeInterface primaryStub = (GameNodeInterface) registry.lookup("GameNode_" + primaryNode.getPlayerId());
+                GossipMessage message = new GossipMessage(
+                        primaryNode, // 旧的主节点（已崩溃）
+                        backupNode,
+                        version,
+                        updatedPlayers,
+                        crashedPlayers,
+                        this.playerInfo,
+                        gameState,
+                        GossipMessage.MessageType.JOIN
+                );
+                primaryStub.receiveGossipMessage(message);
+            } catch (Exception e) {
+                System.out.println("无法联系主节点：" + e.getMessage());
+            }
+
+            System.out.println(this.playerInfo);
+
+            if (backupNode == null && !isBackup && !isPrimary && primaryNode != null) {
+                becomeBackup();
+                sendGossipMessage(primaryNode);
+            }
+
+            break; // 已成功获取主节点信息，退出循环
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
     // 方法：发送 JOIN 消息到 Tracker
     private void sendJoinToTracker() {
         try {

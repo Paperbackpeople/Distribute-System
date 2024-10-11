@@ -8,10 +8,9 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Arrays;
-import java.util.HashMap;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
+import java.util.stream.Collectors;
 
 import Player.*;
 import Position.Position;
@@ -62,13 +61,27 @@ public class GameGUI extends JFrame {
     }
 
     public void updateGameState(GameState state) {
-            players = state.getPlayers();
-            maze = state.getMaze();
-            playerScores = state.getPlayerScores();
-            playerPositions = state.getPlayerPositions();
-            // 更新主服务器和备份服务器信息
-            primaryNode = state.getPrimaryNode();
-            backupNode = state.getBackupNodeId();
+        // 更新游戏状态
+        players = state.getPlayers();
+        maze = state.getMaze();
+        playerScores = state.getPlayerScores();
+        playerPositions = state.getPlayerPositions();
+
+        // 创建一个包含当前所有玩家ID的集合
+        Set<String> currentPlayerIds = players.stream()
+                .map(PlayerInfo::getPlayerId)
+                .collect(Collectors.toSet());
+
+        // 从 playerScores 中移除不在 currentPlayerIds 中的玩家
+        playerScores.keySet().removeIf(playerId -> !currentPlayerIds.contains(playerId));
+
+        // 从 playerPositions 中移除不在 currentPlayerIds 中的玩家
+        playerPositions.keySet().removeIf(playerId -> !currentPlayerIds.contains(playerId));
+
+        // 更新主服务器和备份服务器信息
+        primaryNode = state.getPrimaryNode();
+        backupNode = state.getBackupNodeId();
+
         // 重新绘制迷宫
         updateMaze();
     }

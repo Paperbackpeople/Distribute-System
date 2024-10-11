@@ -51,8 +51,8 @@ public class Tracker extends UnicastRemoteObject implements TrackerInterface {
                 long timeDifference = currentTime - lastProcessTimeJoin;
 
                 // 如果时间差小于 2000 毫秒，延迟处理
-                if (timeDifference < 2000) {
-                    long delay = 4000;
+                if (timeDifference < 1000) {
+                    long delay = 2000;
                     try {
                         System.out.println("Delaying JOIN message for " + delay + " ms");
                         Thread.sleep(delay);
