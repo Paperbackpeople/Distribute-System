@@ -16,8 +16,13 @@ public class GossipMessage implements Serializable {
     private List<PlayerInfo> crashedPlayers; // 存储崩溃的玩家ID
     private PlayerInfo senderInfo; // 发送者的信息
     private GameState gameState; // 游戏状态
+    private MessageType messageType;
+    public enum MessageType {
+        NORMAL,       // 普通玩家消息
+        BACKUP_SYNC,   // 备份节点同步主节点的游戏状态
+        JOIN,          // 玩家加入游戏
 
-
+    }
     public GossipMessage(PlayerInfo primaryNode, PlayerInfo backupNode, int version, List<PlayerInfo> updatedPlayers,
                          List<PlayerInfo> crashedPlayers, PlayerInfo senderInfo, GameState gameState) {
         this.primaryNode = primaryNode;
@@ -28,6 +33,19 @@ public class GossipMessage implements Serializable {
         this.senderInfo = senderInfo;
         this.gameState = gameState;
 
+    }
+    public GossipMessage(PlayerInfo primaryNode, PlayerInfo backupNode, int version,
+                         List<PlayerInfo> updatedPlayers, List<PlayerInfo> crashedPlayers,
+                         PlayerInfo senderInfo, GameState gameState, MessageType messageType) {
+        this(primaryNode, backupNode, version, updatedPlayers, crashedPlayers, senderInfo, gameState);
+        this.messageType = messageType;
+    }
+    public MessageType getMessageType() {
+        return messageType;
+    }
+
+    public void setMessageType(MessageType messageType) {
+        this.messageType = messageType;
     }
     public void setPrimaryNode(PlayerInfo primaryNode) {
         this.primaryNode = primaryNode;

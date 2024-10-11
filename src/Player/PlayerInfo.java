@@ -35,10 +35,6 @@ public class PlayerInfo implements Serializable {
         this.y = y;
     }
 
-    public void incrementScore() {
-        this.score++;
-    }
-
     @Override
     public String toString() {
         return "PlayerInfo{" +

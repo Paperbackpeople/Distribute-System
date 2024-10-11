@@ -4,6 +4,7 @@ import Player.*;
 import Treasure.*;
 import Position.*;
 import java.io.Serializable;
+import java.time.LocalTime;
 import java.util.*;
 
 
@@ -16,6 +17,9 @@ public class GameState implements Serializable {
     private HashMap<String, Integer> playerScores;
     private HashMap<String, Position> playerPositions;
     private String[][]maze;
+    private  String currentPrimaryNode;
+    private String backupNodeId;
+    private LocalTime startTime;
 
     public GameState(int mazeSize, int numTreasures) {
         this.mazeSize = mazeSize;
@@ -33,7 +37,11 @@ public class GameState implements Serializable {
         this.players = new ArrayList<>(other.players);
         this.playerScores = new HashMap<>(other.playerScores);
         this.playerPositions = new HashMap<>(other.playerPositions);
-        this.maze = new String[mazeSize][mazeSize];
+        this.maze = other.maze;
+        this.currentPrimaryNode = other.currentPrimaryNode;
+        this.backupNodeId = other.backupNodeId;
+        this.startTime = other.startTime;
+
         for (int i = 0; i < other.mazeSize; i++) {
             System.arraycopy(other.maze[i], 0, this.maze[i], 0, other.mazeSize);
         }
@@ -130,6 +138,27 @@ public class GameState implements Serializable {
         this.mazeSize = mazeSize;
     }
 
+    public void setPrimaryNode(String primaryNode){
+        this.currentPrimaryNode = primaryNode;
+    }
+
+    public String getPrimaryNode(){
+        return currentPrimaryNode;
+    }
+
+    public void setStartTime(LocalTime startTime){
+        this.startTime = startTime;
+    }
+    public void setBackupNode(String backupNodeId){
+        this.backupNodeId = backupNodeId;
+    }
+    public String getBackupNodeId(){
+        return backupNodeId;
+    }
+    public LocalTime getStartTime(){
+        return startTime;
+    }
+
     public void initializeTreasures() {
         for (int i = 0; i < numTreasures; i++) {
             generateNewTreasure();
@@ -167,6 +196,9 @@ public class GameState implements Serializable {
                 ", playerScores=" + playerScores +
                 ", playerPositions=" + playerPositions +
                 ", maze=" + Arrays.deepToString(maze) +
+                ", currentPrimaryNode='" + currentPrimaryNode + '\'' +
+                ", backupNodeId='" + backupNodeId + '\'' +
+                ", startTime=" + startTime +
                 '}';
     }
 }

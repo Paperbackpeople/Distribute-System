@@ -73,8 +73,7 @@ public class Tracker extends UnicastRemoteObject implements TrackerInterface {
      * 处理 "UPDATE" 类型的消息
      */
     private void handleUpdate(TrackerMessage message) {
-        List<PlayerInfo> updatedPlayers = message.getPlayerList();
-        this.players = updatedPlayers;
+        this.players = message.getPlayerList();
         version = message.getVersion();
         System.out.println("Player list updated by primary node." +  "Current player list: " + players);
     }
