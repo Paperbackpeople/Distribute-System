@@ -190,7 +190,6 @@ public class GameState implements Serializable {
     public String toString() {
         return "GameState{" +
                 "mazeSize=" + mazeSize +
-                ", numTreasures=" + numTreasures +
                 ", treasures=" + treasures +
                 ", players=" + players +
                 ", playerScores=" + playerScores +

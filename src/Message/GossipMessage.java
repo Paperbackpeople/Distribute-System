@@ -99,8 +99,8 @@ public class GossipMessage implements Serializable {
     @Override
     public String toString() {
         return "GossipMessage{" +
-                "primaryNode=" + primaryNode +
-                ", backupNode=" + backupNode +
+                "primaryNode=" + primaryNode.getPlayerId() +
+                ", backupNode=" + backupNode.getPlayerId() +
                 ", version=" + version +
                 ", updatedPlayers=" + updatedPlayers +
                 ", crashedPlayers=" + crashedPlayers +

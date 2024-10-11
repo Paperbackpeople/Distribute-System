@@ -9,14 +9,11 @@ import Message.GossipMessage;
 import Message.TrackerMessage;
 import Player.PlayerInfo;
 import Treasure.TreasureInfo;
-
-import javax.sound.midi.Soundbank;
 import javax.swing.*;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
-import java.sql.SQLOutput;
 import java.time.LocalTime;
 import java.util.*;
 import java.util.concurrent.*;
@@ -167,7 +164,7 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
         normalGossipThread = new Thread(() -> {
             while (!Thread.currentThread().isInterrupted()) {
                 try {
-                    if (isPrimary || isBackup) {
+                    if (isPrimary) {
                         // 如果节点变为主节点或备份节点，退出线程
                         break;
                     }
@@ -577,6 +574,7 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
             GameNodeInterface node = (GameNodeInterface) registry.lookup("GameNode_" + targetNode.getPlayerId());
             GossipMessage message = new GossipMessage(primaryNode, backupNode, version, updatedPlayers, crashedPlayers, this.playerInfo, null);
             node.receiveGossipMessage(message);
+            System.out.println("Sent GossipMessage to node " + targetNode.getPlayerId() + ": " + message);
         } catch (Exception e) {
             System.out.println("Failed to send GossipMessage to node " + targetNode.getPlayerId() );
         }
@@ -616,6 +614,7 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
             } else {
                 message = new GossipMessage(primaryNode, backupNode, version, updatedPlayers, crashedPlayers, this.playerInfo, null);
             }
+            System.out.println("发送 Gossip 消息给 " + targetNode.getPlayerId() + message);
             node.receiveGossipMessage(message);
         } catch (Exception e) {
             System.out.println("无法向备份节点发送 Gossip 消息，备份节点可能已崩溃：" + targetNode.getPlayerId());
@@ -632,6 +631,9 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
         isPrimary = true;
         primaryNode = this.playerInfo;
         isBackup = false;
+        if (gameState != null) {
+            gameState.setPrimaryNode(playerInfo.getPlayerId());
+        }
         System.out.println("此节点已成为主服务器。");
 
         // 中断 normal gossip 线程
@@ -815,6 +817,7 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
                     if (!isPrimaryNodeAlive()) {
                         primaryCrashHandled = true;
                         handlePrimaryNodeCrash();
+                        primaryCrashHandled = false;
                     } else {
                         System.out.println("主节点仍然存活，忽略错误的崩溃通知。");
                     }
@@ -827,7 +830,7 @@ public class GamerNode implements GameNodeInterface, TrackerCommunicationInterfa
     private void handlePrimaryNodeCrash() {
         synchronized (this) {
             System.out.println("备份节点检测到主节点崩溃。正在尝试选举新的主节点...");
-
+            crashedPlayers.add(primaryNode);
             // 从 updatedPlayers 中选择候选节点（排除自己和已崩溃的节点）
             List<PlayerInfo> candidates = new ArrayList<>(updatedPlayers);
             candidates.removeIf(player -> player.getPlayerId().equals(this.playerId)); // 移除自己

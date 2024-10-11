@@ -37,10 +37,7 @@ public class PlayerInfo implements Serializable {
 
     @Override
     public String toString() {
-        return "PlayerInfo{" +
-                "playerId='" + playerId +
-                ", x=" + x +
-                ", y=" + y +
+        return "PlayerInfo{" + playerId +
                 "}";
     }
 
