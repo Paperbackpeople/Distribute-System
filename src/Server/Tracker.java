@@ -10,6 +10,8 @@ import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class Tracker extends UnicastRemoteObject implements TrackerInterface {
     private int N; // 迷宫的大小
@@ -19,6 +21,10 @@ public class Tracker extends UnicastRemoteObject implements TrackerInterface {
     public final String trackerId = "01";
     public final int trackerPort = 1099;
 
+    private long lastProcessTimeJoin = -1; // 上一次处理消息的时间戳，-1 表示尚未处理任何消息
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    private final Lock readLock = lock.readLock();
+    private final Lock writeLock = lock.writeLock();
 
     protected Tracker(int N, int K) throws RemoteException {
         super();
@@ -32,7 +38,46 @@ public class Tracker extends UnicastRemoteObject implements TrackerInterface {
      * 处理来自 GamerNode 的 TrackerMessage
      */
     @Override
-    public synchronized TrackerMessage handleTrackerMessage(TrackerMessage message) throws RemoteException {
+    public TrackerMessage handleTrackerMessage(TrackerMessage message) throws RemoteException {
+        String type = message.getMessageType();
+
+        if ("JOIN".equals(type)) {
+            // 针对 JOIN 消息的延迟逻辑
+            long currentTime = System.currentTimeMillis();
+            System.out.println("Last JOIN process time: " + lastProcessTimeJoin);
+
+            if (lastProcessTimeJoin != -1) {
+                // 计算与上一次处理 JOIN 消息的时间差
+                long timeDifference = currentTime - lastProcessTimeJoin;
+
+                // 如果时间差小于 2000 毫秒，延迟处理
+                if (timeDifference < 2000) {
+                    long delay = 4000;
+                    try {
+                        System.out.println("Delaying JOIN message for " + delay + " ms");
+                        Thread.sleep(delay);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        e.printStackTrace();
+                    }
+                }
+            }
+
+            // 更新上一次处理 JOIN 消息的时间
+            lastProcessTimeJoin = System.currentTimeMillis();
+        }
+
+        // 处理消息
+        TrackerMessage response = processMessage(message);
+
+        // 返回响应
+        return response;
+    }
+
+    /**
+     * 处理消息并返回响应
+     */
+    private TrackerMessage processMessage(TrackerMessage message) {
         String type = message.getMessageType();
         PlayerInfo sender = message.getSenderInfo();
 
@@ -60,7 +105,6 @@ public class Tracker extends UnicastRemoteObject implements TrackerInterface {
         return response;
     }
 
-
     /**
      * 处理 "JOIN" 类型的消息
      */
@@ -75,9 +119,8 @@ public class Tracker extends UnicastRemoteObject implements TrackerInterface {
     private void handleUpdate(TrackerMessage message) {
         this.players = message.getPlayerList();
         version = message.getVersion();
-        System.out.println("Player list updated by primary node." +  "Current player list: " + players);
+        System.out.println("Player list updated by primary node. Current player list: " + players);
     }
-
 
     /**
      * 启动 Tracker 服务器的方法
